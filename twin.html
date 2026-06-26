@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Digital Twin - Krishi Sakhi</title>
+    <style>
+        body { 
+            font-family: Arial, sans-serif; 
+            margin: 0; 
+            padding: 0; 
+            overflow: hidden; 
+            background: #87CEEB;
+        }
+        #twin-container {
+            width: 100vw;
+            height: 100vh;
+            position: relative;
+        }
+        #crop-details {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: rgba(255,255,255,0.95);
+            padding: 15px;
+            border-radius: 10px;
+            z-index: 100;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+            min-width: 220px;
+        }
+        #twin-info {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            background: rgba(255,255,255,0.95);
+            padding: 15px;
+            border-radius: 10px;
+            z-index: 100;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+        }
+        .button-group {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            z-index: 100;
+            display: flex;
+            gap: 10px;
+            flex-direction: column;
+        }
+        button {
+            background: #4CAF50;
+            color: white;
+            border: none;
+            padding: 12px 20px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: all 0.3s;
+        }
+        button:hover {
+            background: #45a049;
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(76, 175, 80, 0.4);
+        }
+        .back-link {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            z-index: 100;
+            background: #667eea;
+            color: white;
+            padding: 10px 15px;
+            border-radius: 8px;
+            text-decoration: none;
+            font-weight: bold;
+        }
+        .back-link:hover {
+            background: #5568d3;
+        }
+        h3 { margin-top: 0; color: #333; }
+        p { margin: 8px 0; }
+        span { font-weight: bold; color: #4CAF50; }
+    </style>
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js"
+            }
+        }
+    </script>
+</head>
+<body>
+    <div id="twin-container">
+        <!-- Crop Details Panel -->
+        <div id="crop-details">
+            <h3>📊 Crop Data</h3>
+            <p><b>Crop:</b> <span id="crop-name">Loading...</span></p>
+            <p><b>State:</b> <span id="state-name">Loading...</span></p>
+            <p><b>Season:</b> <span id="season-name">Loading...</span></p>
+            <p><b>Area:</b> <span id="area-value">Loading...</span> ha</p>
+            <p><b>Base Yield:</b> <span id="base-yield">Loading...</span> t/ha</p>
+        </div>
+        
+        <!-- Control Buttons -->
+        <div class="button-group">
+            <button onclick="simulateRain()">Add Rainfall +200mm</button>
+            <button onclick="simulateFertilizer()">Reduce Fertilizer -50%</button>
+            <button onclick="resetTwin()">Reset</button>
+        </div>
+        
+        <!-- Info Panel -->
+        <div id="twin-info">
+            <b>Current Yield:</b> <span id="yield">3.00</span> ton/hectare<br>
+            <b>Plant Status:</b> <span id="status">Weak</span><br>
+            <b>Plant Height:</b> <span id="height">1.50</span>m
+        </div>
+        
+        <a href="/" class="back-link">← Back to Home</a>
+    </div>
+    
+    <script type="module">
+        import * as THREE from 'three';
+        
+        // Global variables
+        let scene, camera, renderer, plant;
+        let currentYield = 3;
+        let baseData = {};
+        
+        // Initialize 3D Scene
+        function initTwin() {
+            // Scene setup
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x87CEEB);
+            
+            // Camera setup
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.set(3, 3, 5);
+            camera.lookAt(0, 1, 0);
+            
+            // Renderer setup
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            document.getElementById('twin-container').appendChild(renderer.domElement);
+            
+            // Lighting
+            const light = new THREE.DirectionalLight(0xffffff, 1);
+            light.position.set(5, 10, 7);
+            scene.add(light);
+            scene.add(new THREE.AmbientLight(0x404040));
+            
+            // Ground
+            const ground = new THREE.Mesh(
+                new THREE.PlaneGeometry(10, 10),
+                new THREE.MeshLambertMaterial({ color: 0x8B4513 })
+            );
+            ground.rotation.x = -Math.PI / 2;
+            scene.add(ground);
+            
+            // Create initial plant
+            createPlant(currentYield);
+            
+            // Start animation
+            animate();
+            
+            // Load last prediction from main page
+            loadLastPrediction();
+            loadCropDetails();
+            
+            // Handle window resize
+            window.addEventListener('resize', onWindowResize);
+        }
+        
+        // Create/Update Plant based on yield
+        function createPlant(yieldVal) {
+            // Remove old plant if exists
+            if (plant) {
+                scene.remove(plant);
+            }
+            
+            // Plant height based on yield
+            const height = Math.max(yieldVal * 0.5, 0.5);
+            
+            // Plant color based on health
+            let color;
+            if (yieldVal > 5) {
+                color = 0x00ff00; // Healthy - Green
+            } else if (yieldVal > 3) {
+                color = 0x90EE90; // Average - Light Green
+            } else {
+                color = 0xFFFF00; // Weak - Yellow
+            }
+            
+            // Create plant mesh
+            const geometry = new THREE.CylinderGeometry(0.1, 0.3, height, 8);
+            const material = new THREE.MeshLambertMaterial({ color: color });
+            plant = new THREE.Mesh(geometry, material);
+            plant.position.y = height / 2;
+            scene.add(plant);
+            
+            // Add leaves
+            const leaf1 = new THREE.Mesh(
+                new THREE.SphereGeometry(0.3, 8, 6),
+                new THREE.MeshLambertMaterial({ color: color })
+            );
+            leaf1.position.set(0.3, height * 0.8, 0);
+            leaf1.scale.set(1, 0.5, 1);
+            plant.add(leaf1);
+            
+            const leaf2 = leaf1.clone();
+            leaf2.position.set(-0.3, height * 0.7, 0);
+            plant.add(leaf2);
+            
+            // Update info panel
+            let status = yieldVal > 5 ? 'Healthy' : yieldVal > 3 ? 'Average' : 'Weak';
+            document.getElementById('yield').innerText = yieldVal.toFixed(2);
+            document.getElementById('status').innerText = status;
+            document.getElementById('height').innerText = height.toFixed(2);
+        }
+        
+        // Animation loop
+        function animate() {
+            requestAnimationFrame(animate);
+            if (plant) {
+                plant.rotation.y += 0.005;
+            }
+            renderer.render(scene, camera);
+        }
+        
+        // Handle window resize
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+        
+        // Load last prediction from localStorage
+        function loadLastPrediction() {
+            const savedYield = localStorage.getItem('lastResult');
+            const savedData = localStorage.getItem('lastYield');
+            if (savedYield && savedData) {
+                currentYield = parseFloat(savedYield);
+                baseData = JSON.parse(savedData);
+                createPlant(currentYield);
+                console.log('Loaded last prediction:', baseData);
+            } else {
+                console.log('No saved prediction found. Using default values.');
+            }
+        }
+        
+        // Load crop details from localStorage and show in UI
+        function loadCropDetails() {
+            const lastYield = JSON.parse(localStorage.getItem('lastYield'));
+            const lastResult = localStorage.getItem('lastResult');
+            
+            if (lastYield && lastResult) {
+                document.getElementById('crop-name').innerText = lastYield.Crop;
+                document.getElementById('state-name').innerText = lastYield.State;
+                document.getElementById('season-name').innerText = lastYield.Season;
+                document.getElementById('area-value').innerText = lastYield.Area;
+                document.getElementById('base-yield').innerText = lastResult;
+            } else {
+                document.getElementById('crop-details').innerHTML = `
+                    <p style="color:red;">⚠️ Mundhu Home page lo 'Predict Yield' chey bro. Appude data kanipistundi.</p>
+                `;
+            }
+        }
+        
+        // What-If: Simulate more rainfall
+        async function simulateRain() {
+            if (!baseData.State) {
+                alert('First go back and predict yield on main page!');
+                return;
+            }
+            const newData = {
+                ...baseData,
+                Annual_Rainfall: baseData.Annual_Rainfall + 200
+            };
+            try {
+                const res = await fetch('/predict-yield', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(newData)
+                });
+                if (!res.ok) throw new Error('Prediction failed');
+                const result = await res.json();
+                currentYield = result.predicted_yield;
+                createPlant(currentYield);
+                document.getElementById('twin-info').innerHTML += `<br><b style="color:blue;">+200mm Rainfall Applied</b>`;
+            } catch (error) {
+                alert('Error: ' + error.message + '\nServer run avthunda check chey bro!');
+            }
+        }
+        
+        // What-If: Simulate less fertilizer
+        async function simulateFertilizer() {
+            if (!baseData.State) {
+                alert('First go back and predict yield on main page!');
+                return;
+            }
+            const newData = {
+                ...baseData,
+                Fertilizer: baseData.Fertilizer * 0.5 // 50% decrease
+            };
+            try {
+                const res = await fetch('/predict-yield', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(newData)
+                });
+                if (!res.ok) throw new Error('Prediction failed');
+                const result = await res.json();
+                currentYield = result.predicted_yield;
+                createPlant(currentYield);
+                document.getElementById('twin-info').innerHTML += `<br><b style="color:orange;">-50% Fertilizer Applied</b>`;
+            } catch (error) {
+                alert('Error: ' + error.message + '\nServer run avthunda check chey bro!');
+            }
+        }
+        
+        // Reset to original prediction
+        function resetTwin() {
+            loadLastPrediction();
+            loadCropDetails();
+            document.getElementById('twin-info').innerHTML = `
+                <b>Current Yield:</b> <span id="yield">${currentYield.toFixed(2)}</span> ton/hectare<br>
+                <b>Plant Status:</b> <span id="status">Weak</span><br>
+                <b>Plant Height:</b> <span id="height">1.50</span>m
+            `;
+            createPlant(currentYield);
+        }
+        
+        // Make functions global for onclick
+        window.simulateRain = simulateRain;
+        window.simulateFertilizer = simulateFertilizer;
+        window.resetTwin = resetTwin;
+        
+        // Start the twin
+        initTwin();
+    </script>
+</body>
+</html>
