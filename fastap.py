@@ -8,7 +8,6 @@ import sqlite3
 from datetime import datetime
 import numpy as np
 from contextlib import asynccontextmanager
-
 # --- Global Variables for Models ---
 crop_model = None
 label_encoder = None
